@@ -119,6 +119,10 @@ struct Monitor {
 	int by;               /* bar geometry */
 	int mx, my, mw, mh;   /* screen size */
 	int wx, wy, ww, wh;   /* window area  */
+	int gappih;           /* horizontal gap between windows */
+	int gappiv;           /* vertical gap between windows */
+	int gappoh;           /* horizontal outer gaps */
+	int gappov;           /* vertical outer gaps */
 	unsigned int seltags;
 	unsigned int sellt;
 	unsigned int tagset[2];
@@ -141,6 +145,13 @@ typedef struct {
 	int monitor;
 } Rule;
 
+typedef struct {
+	int y;
+	int show;
+	Window win;
+	char text[256];
+} Bar;
+
 /* function declarations */
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact);
@@ -157,6 +168,7 @@ static void configure(Client *c);
 static void configurenotify(XEvent *e);
 static void configurerequest(XEvent *e);
 static Monitor *createmon(void);
+static void cyclelayout(const Arg *arg);
 static void destroynotify(XEvent *e);
 static void detach(Client *c);
 static void detachstack(Client *c);
@@ -200,6 +212,16 @@ static void sendmon(Client *c, Monitor *m);
 static void setclientstate(Client *c, long state);
 static void setfocus(Client *c);
 static void setfullscreen(Client *c, int fullscreen);
+static void setgaps(int oh, int ov, int ih, int iv);
+static void incrgaps(const Arg *arg);
+static void incrigaps(const Arg *arg);
+static void incrogaps(const Arg *arg);
+static void incrohgaps(const Arg *arg);
+static void incrovgaps(const Arg *arg);
+static void incrihgaps(const Arg *arg);
+static void incrivgaps(const Arg *arg);
+static void togglegaps(const Arg *arg);
+static void defaultgaps(const Arg *arg);
 static void setlayout(const Arg *arg);
 static void setmfact(const Arg *arg);
 static void setup(void);
@@ -211,6 +233,7 @@ static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
 static void tile(Monitor *);
 static void togglebar(const Arg *arg);
+static void toggleextrabar(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void toggletag(const Arg *arg);
 static void toggleview(const Arg *arg);
@@ -234,6 +257,7 @@ static int xerror(Display *dpy, XErrorEvent *ee);
 static int xerrordummy(Display *dpy, XErrorEvent *ee);
 static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
+static void autostart_exec(void);
 
 /* variables */
 static const char broken[] = "broken";
@@ -241,7 +265,10 @@ static char stext[256];
 static int screen;
 static int sw, sh;           /* X display screen geometry width, height */
 static int bh, blw = 0;      /* bar geometry */
+static int enablegaps = 1;   /* enables gaps, used by togglegaps */
 static int lrpad;            /* sum of left and right padding for text */
+static int vp;               /* vertical padding for bar */
+static int sp;               /* side padding for bar */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static unsigned int numlockmask = 0;
 static void (*handler[LASTEvent]) (XEvent *) = {
@@ -268,12 +295,41 @@ static Display *dpy;
 static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
+static Bar eb;
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
 
 /* compile-time check if all tags fit into an unsigned int bit array. */
 struct NumTags { char limitexceeded[LENGTH(tags) > 31 ? -1 : 1]; };
+
+/* dwm will keep pid's of processes from autostart array and kill them at quit */
+static pid_t *autostart_pids;
+static size_t autostart_len;
+
+/* execute command from autostart array */
+static void
+autostart_exec() {
+	const char *const *p;
+	size_t i = 0;
+
+	/* count entries */
+	for (p = autostart; *p; autostart_len++, p++)
+		while (*++p);
+
+	autostart_pids = malloc(autostart_len * sizeof(pid_t));
+	for (p = autostart; *p; i++, p++) {
+		if ((autostart_pids[i] = fork()) == 0) {
+			setsid();
+			execvp(*p, (char *const *)p);
+			fprintf(stderr, "dwm: execvp %s\n", *p);
+			perror(" failed");
+			_exit(EXIT_FAILURE);
+		}
+		/* skip arguments */
+		while (*++p);
+	}
+}
 
 /* function implementations */
 void
@@ -481,6 +537,8 @@ cleanup(void)
 		while (m->stack)
 			unmanage(m->stack, 0);
 	XUngrabKey(dpy, AnyKey, AnyModifier, root);
+	XUnmapWindow(dpy, eb.win);
+	XDestroyWindow(dpy, eb.win);
 	while (mons)
 		cleanupmon(mons);
 	for (i = 0; i < CurLast; i++)
@@ -568,8 +626,9 @@ configurenotify(XEvent *e)
 				for (c = m->clients; c; c = c->next)
 					if (c->isfullscreen)
 						resizeclient(c, m->mx, m->my, m->mw, m->mh);
-				XMoveResizeWindow(dpy, m->barwin, m->wx, m->by, m->ww, bh);
+				XMoveResizeWindow(dpy, m->barwin, m->wx + sp, m->by + vp, m->ww -  2 * sp, bh);
 			}
+			XMoveResizeWindow(dpy, eb.win, mons->wx, eb.y, mons->ww - 2 * sp, bh);
 			focus(NULL);
 			arrange(NULL);
 		}
@@ -639,10 +698,31 @@ createmon(void)
 	m->nmaster = nmaster;
 	m->showbar = showbar;
 	m->topbar = topbar;
+	m->gappih = gappih;
+	m->gappiv = gappiv;
+	m->gappoh = gappoh;
+	m->gappov = gappov;
 	m->lt[0] = &layouts[0];
 	m->lt[1] = &layouts[1 % LENGTH(layouts)];
 	strncpy(m->ltsymbol, layouts[0].symbol, sizeof m->ltsymbol);
 	return m;
+}
+
+void
+cyclelayout(const Arg *arg) {
+	Layout *l;
+	for(l = (Layout *)layouts; l != selmon->lt[selmon->sellt]; l++);
+	if(arg->i > 0) {
+		if(l->symbol && (l + 1)->symbol)
+			setlayout(&((Arg) { .v = (l + 1) }));
+		else
+			setlayout(&((Arg) { .v = layouts }));
+	} else {
+		if(l != layouts && (l - 1)->symbol)
+			setlayout(&((Arg) { .v = (l - 1) }));
+		else
+			setlayout(&((Arg) { .v = &layouts[LENGTH(layouts) - 2] }));
+	}
 }
 
 void
@@ -706,7 +786,7 @@ drawbar(Monitor *m)
 	if (m == selmon) { /* status is only drawn on selected monitor */
 		drw_setscheme(drw, scheme[SchemeNorm]);
 		tw = TEXTW(stext) - lrpad + 2; /* 2px right padding */
-		drw_text(drw, m->ww - tw, 0, tw, bh, 0, stext, 0);
+		drw_text(drw, m->ww - tw - 2 * sp, 0, tw, bh, 0, stext, 0);
 	}
 
 	for (c = m->clients; c; c = c->next) {
@@ -732,15 +812,18 @@ drawbar(Monitor *m)
 	if ((w = m->ww - tw - x) > bh) {
 		if (m->sel) {
 			drw_setscheme(drw, scheme[m == selmon ? SchemeSel : SchemeNorm]);
-			drw_text(drw, x, 0, w, bh, lrpad / 2, m->sel->name, 0);
+			drw_text(drw, x, 0, w - 2 * sp, bh, lrpad / 2, m->sel->name, 0);
 			if (m->sel->isfloating)
 				drw_rect(drw, x + boxs, boxs, boxw, boxw, m->sel->isfixed, 0);
 		} else {
 			drw_setscheme(drw, scheme[SchemeNorm]);
-			drw_rect(drw, x, 0, w, bh, 1, 1);
+			drw_rect(drw, x, 0, w - 2 * sp, bh, 1, 1);
 		}
 	}
 	drw_map(drw, m->barwin, 0, 0, m->ww, bh);
+	drw_setscheme(drw, &scheme[SchemeNorm]);
+	drw_text(drw, 0, 0, mons->ww, bh, lrpad / 2, eb.text, 0);
+	drw_map(drw, eb.win, 0, 0, mons->ww, bh);
 }
 
 void
@@ -1249,6 +1332,16 @@ propertynotify(XEvent *e)
 void
 quit(const Arg *arg)
 {
+	size_t i;
+
+	/* kill child processes */
+	for (i = 0; i < autostart_len; i++) {
+		if (0 < autostart_pids[i]) {
+			kill(autostart_pids[i], SIGTERM);
+			waitpid(autostart_pids[i], NULL, 0);
+		}
+	}
+
 	running = 0;
 }
 
@@ -1499,6 +1592,111 @@ setfullscreen(Client *c, int fullscreen)
 }
 
 void
+setgaps(int oh, int ov, int ih, int iv)
+{
+	if (oh < 0) oh = 0;
+	if (ov < 0) ov = 0;
+	if (ih < 0) ih = 0;
+	if (iv < 0) iv = 0;
+
+	selmon->gappoh = oh;
+	selmon->gappov = ov;
+	selmon->gappih = ih;
+	selmon->gappiv = iv;
+	arrange(selmon);
+}
+
+void
+togglegaps(const Arg *arg)
+{
+	enablegaps = !enablegaps;
+	arrange(selmon);
+}
+
+void
+defaultgaps(const Arg *arg)
+{
+	setgaps(gappoh, gappov, gappih, gappiv);
+}
+
+void
+incrgaps(const Arg *arg)
+{
+	setgaps(
+		selmon->gappoh + arg->i,
+		selmon->gappov + arg->i,
+		selmon->gappih + arg->i,
+		selmon->gappiv + arg->i
+	);
+}
+
+void
+incrigaps(const Arg *arg)
+{
+	setgaps(
+		selmon->gappoh,
+		selmon->gappov,
+		selmon->gappih + arg->i,
+		selmon->gappiv + arg->i
+	);
+}
+
+void
+incrogaps(const Arg *arg)
+{
+	setgaps(
+		selmon->gappoh + arg->i,
+		selmon->gappov + arg->i,
+		selmon->gappih,
+		selmon->gappiv
+	);
+}
+
+void
+incrohgaps(const Arg *arg)
+{
+	setgaps(
+		selmon->gappoh + arg->i,
+		selmon->gappov,
+		selmon->gappih,
+		selmon->gappiv
+	);
+}
+
+void
+incrovgaps(const Arg *arg)
+{
+	setgaps(
+		selmon->gappoh,
+		selmon->gappov + arg->i,
+		selmon->gappih,
+		selmon->gappiv
+	);
+}
+
+void
+incrihgaps(const Arg *arg)
+{
+	setgaps(
+		selmon->gappoh,
+		selmon->gappov,
+		selmon->gappih + arg->i,
+		selmon->gappiv
+	);
+}
+
+void
+incrivgaps(const Arg *arg)
+{
+	setgaps(
+		selmon->gappoh,
+		selmon->gappov,
+		selmon->gappih,
+		selmon->gappiv + arg->i
+	);
+}
+
+void
 setlayout(const Arg *arg)
 {
 	if (!arg || !arg->v || arg->v != selmon->lt[selmon->sellt])
@@ -1545,9 +1743,13 @@ setup(void)
 	drw = drw_create(dpy, screen, root, sw, sh);
 	if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
 		die("no fonts could be loaded.");
+	eb.show = extrabar;
 	lrpad = drw->fonts->h;
 	bh = drw->fonts->h + 2;
 	updategeom();
+	sp = sidepad;
+	vp = (topbar == 1) ? vertpad : - vertpad;
+
 	/* init atoms */
 	utf8string = XInternAtom(dpy, "UTF8_STRING", False);
 	wmatom[WMProtocols] = XInternAtom(dpy, "WM_PROTOCOLS", False);
@@ -1574,6 +1776,7 @@ setup(void)
 	/* init bars */
 	updatebars();
 	updatestatus();
+	updatebarpos(selmon);
 	/* supporting window for NetWMCheck */
 	wmcheckwin = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
 	XChangeProperty(dpy, wmcheckwin, netatom[NetWMCheck], XA_WINDOW, 32,
@@ -1632,9 +1835,25 @@ showhide(Client *c)
 void
 sigchld(int unused)
 {
+	pid_t pid;
+
 	if (signal(SIGCHLD, sigchld) == SIG_ERR)
 		die("can't install SIGCHLD handler:");
-	while (0 < waitpid(-1, NULL, WNOHANG));
+	while (0 < (pid = waitpid(-1, NULL, WNOHANG))) {
+		pid_t *p, *lim;
+
+		if (!(p = autostart_pids))
+			continue;
+		lim = &p[autostart_len];
+
+		for (; p < lim; p++) {
+			if (*p == pid) {
+				*p = -1;
+				break;
+			}
+		}
+
+	}
 }
 
 void
@@ -1674,28 +1893,34 @@ tagmon(const Arg *arg)
 void
 tile(Monitor *m)
 {
-	unsigned int i, n, h, mw, my, ty;
+	unsigned int i, n, h, r, oe = enablegaps, ie = enablegaps, mw, my, ty;
 	Client *c;
 
 	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
 	if (n == 0)
 		return;
 
+	if (smartgaps == n) {
+		oe = 0; // outer gaps disabled
+	}
+
 	if (n > m->nmaster)
-		mw = m->nmaster ? m->ww * m->mfact : 0;
+		mw = m->nmaster ? (m->ww + m->gappiv*ie) * m->mfact : 0;
 	else
-		mw = m->ww;
-	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
+		mw = m->ww - 2*m->gappov*oe + m->gappiv*ie;
+	for (i = 0, my = ty = m->gappoh*oe, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
 		if (i < m->nmaster) {
-			h = (m->wh - my) / (MIN(n, m->nmaster) - i);
-			resize(c, m->wx, m->wy + my, mw - (2*c->bw), h - (2*c->bw), 0);
-			if (my + HEIGHT(c) < m->wh)
-				my += HEIGHT(c);
+			r = MIN(n, m->nmaster) - i;
+			h = (m->wh - my - m->gappoh*oe - m->gappih*ie * (r - 1)) / r;
+			resize(c, m->wx + m->gappov*oe, m->wy + my, mw - (2*c->bw) - m->gappiv*ie, h - (2*c->bw), 0);
+			if (my + HEIGHT(c) + m->gappih*ie < m->wh)
+			my += HEIGHT(c) + m->gappih*ie;
 		} else {
-			h = (m->wh - ty) / (n - i);
-			resize(c, m->wx + mw, m->wy + ty, m->ww - mw - (2*c->bw), h - (2*c->bw), 0);
-			if (ty + HEIGHT(c) < m->wh)
-				ty += HEIGHT(c);
+			r = n - i;
+			h = (m->wh - ty - m->gappoh*oe - m->gappih*ie * (r - 1)) / r;
+			resize(c, m->wx + mw + m->gappov*oe, m->wy + ty, m->ww - mw - (2*c->bw) - 2*m->gappov*oe, h - (2*c->bw), 0);
+			if (ty + HEIGHT(c) + m->gappih*ie < m->wh)
+				ty += HEIGHT(c) + m->gappih*ie;
 		}
 }
 
@@ -1704,8 +1929,19 @@ togglebar(const Arg *arg)
 {
 	selmon->showbar = !selmon->showbar;
 	updatebarpos(selmon);
-	XMoveResizeWindow(dpy, selmon->barwin, selmon->wx, selmon->by, selmon->ww, bh);
+	XMoveResizeWindow(dpy, selmon->barwin, selmon->wx + sp, selmon->by + vp, selmon->ww - 2 * sp, bh);
 	arrange(selmon);
+}
+
+void
+toggleextrabar(const Arg *arg)
+{
+	if(selmon == mons) {
+		eb.show = !eb.show;
+		updatebarpos(selmon);
+		XMoveResizeWindow(dpy, eb.win, selmon->wx, eb.y, selmon->ww, bh);
+		arrange(selmon);
+	}
 }
 
 void
@@ -1814,12 +2050,19 @@ updatebars(void)
 	for (m = mons; m; m = m->next) {
 		if (m->barwin)
 			continue;
-		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bh, 0, DefaultDepth(dpy, screen),
+		m->barwin = XCreateWindow(dpy, root, m->wx + sp, m->by + vp, m->ww - 2 * sp, bh, 0, DefaultDepth(dpy, screen),
 				CopyFromParent, DefaultVisual(dpy, screen),
 				CWOverrideRedirect|CWBackPixmap|CWEventMask, &wa);
 		XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
 		XMapRaised(dpy, m->barwin);
 		XSetClassHint(dpy, m->barwin, &ch);
+	}
+	if(!eb.win) {
+		eb.win = XCreateWindow(dpy, root, mons->wx, eb.y, mons->ww, bh, 0, DefaultDepth(dpy, screen),
+				       CopyFromParent, DefaultVisual(dpy, screen),
+				       CWOverrideRedirect|CWBackPixmap|CWEventMask, &wa);
+		XDefineCursor(dpy, eb.win, cursor[CurNormal]->cursor);
+		XMapRaised(dpy, eb.win);
 	}
 }
 
@@ -1829,11 +2072,19 @@ updatebarpos(Monitor *m)
 	m->wy = m->my;
 	m->wh = m->mh;
 	if (m->showbar) {
-		m->wh -= bh;
-		m->by = m->topbar ? m->wy : m->wy + m->wh;
-		m->wy = m->topbar ? m->wy + bh : m->wy;
+		m->wh = m->wh - vertpad - bh;
+		m->by = m->topbar ? m->wy : m->wy + m->wh + vertpad;
+		m->wy = m->topbar ? m->wy + bh + vp : m->wy;
 	} else
-		m->by = -bh;
+		m->by = -bh - vp;
+
+	if (m == mons && eb.show) {
+		m->wh -= bh;
+		eb.y = topbar ? m->wy + m->wh : m->wy;
+		m->wy = m->topbar ? m->wy : m->wy + bh;
+	}
+	else
+		eb.y = -bh;
 }
 
 void
@@ -1990,8 +2241,21 @@ updatesizehints(Client *c)
 void
 updatestatus(void)
 {
-	if (!gettextprop(root, XA_WM_NAME, stext, sizeof(stext)))
+	char text[512];
+	if(!gettextprop(root, XA_WM_NAME, text, sizeof(text))) {
 		strcpy(stext, "dwm-"VERSION);
+		eb.text[0] = '\0';
+	}
+	else {
+		char *e = strchr(text, ';');
+		if(e) {
+			*e = '\0'; e++;
+			strncpy(eb.text, e, sizeof(eb.text)-1);
+		}
+		else
+			eb.text[0] = '\0';
+		strncpy(stext, text, sizeof(stext)-1);
+	}
 	drawbar(selmon);
 }
 
@@ -2139,6 +2403,7 @@ main(int argc, char *argv[])
 	if (!(dpy = XOpenDisplay(NULL)))
 		die("dwm: cannot open display");
 	checkotherwm();
+	autostart_exec();
 	setup();
 #ifdef __OpenBSD__
 	if (pledge("stdio rpath proc exec", NULL) == -1)
