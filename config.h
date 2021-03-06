@@ -1,5 +1,4 @@
 /* See LICENSE file for copyright and license details. */
-#include "tcl.c"
 
 /* appearance */
 static const unsigned int borderpx  = 0;        /* border pixel of windows */
@@ -14,6 +13,8 @@ static const int topbar             = 1;        /* 0 means bottom bar */
 static const int extrabar           = 1;        /* 0 means no extra bar */
 static const int vertpad            = 10;       /* vertical padding of bar */
 static const int sidepad            = 10;       /* horizontal padding of bar */
+static const int statmonval         = 0;        /* which monitor to keep the status bar on */
+
 static const char *fonts[]          = { "MonoLisa:size=10" };
 static const char dmenufont[]       = "MonoLisa:size=10";
 static const char col_gray1[]       = "#222222";
@@ -46,11 +47,15 @@ static const float mfact     = 0.55; /* factor of master area size [0.05..0.95] 
 static const int nmaster     = 1;    /* number of clients in master area */
 static const int resizehints = 1;    /* 1 means respect size hints in tiled resizals */
 
+#include "layouts/tcl.c"
+#include "layouts/fibonacci.c"
 static const Layout layouts[] = {
 	/* symbol     arrange function */
 	{ "[]=",      tile },    /* first entry is default */
 	{ "><>",      NULL },    /* no layout function means floating behavior */
 	{ "|||",      tcl },     /* three column patch */
+	{ "[@]",      spiral },
+	{ "[\\]",     dwindle },
 	{ NULL,       NULL },
 };
 

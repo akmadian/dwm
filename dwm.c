@@ -193,7 +193,6 @@ static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
-static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
 static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
@@ -293,7 +292,7 @@ static Cur *cursor[CurLast];
 static Clr **scheme;
 static Display *dpy;
 static Drw *drw;
-static Monitor *mons, *selmon;
+static Monitor *mons, *selmon, *statmon;
 static Window root, wmcheckwin;
 static Bar eb;
 
@@ -783,7 +782,7 @@ drawbar(Monitor *m)
 	Client *c;
 
 	/* draw status first so it can be overdrawn by tags later */
-	if (m == selmon) { /* status is only drawn on selected monitor */
+	if (m == statmon) { /* status is only drawn on user-defined status monitor */
 		drw_setscheme(drw, scheme[SchemeNorm]);
 		tw = TEXTW(stext) - lrpad + 2; /* 2px right padding */
 		drw_text(drw, m->ww - tw - 2 * sp, 0, tw, bh, 0, stext, 0);
@@ -800,9 +799,10 @@ drawbar(Monitor *m)
 		drw_setscheme(drw, scheme[m->tagset[m->seltags] & 1 << i ? SchemeSel : SchemeNorm]);
 		drw_text(drw, x, 0, w, bh, lrpad / 2, tags[i], urg & 1 << i);
 		if (occ & 1 << i)
-			drw_rect(drw, x + boxs, boxs, boxw, boxw,
-				m == selmon && selmon->sel && selmon->sel->tags & 1 << i,
-				urg & 1 << i);
+			drw_rect(drw, x + boxw, 0, w - ( 2 * boxw + 1), boxw,
+			    m == selmon && selmon->sel && selmon->sel->tags & 1 << i,
+			    urg & 1 << i);
+
 		x += w;
 	}
 	w = blw = TEXTW(m->ltsymbol);
@@ -821,7 +821,7 @@ drawbar(Monitor *m)
 		}
 	}
 	drw_map(drw, m->barwin, 0, 0, m->ww, bh);
-	drw_setscheme(drw, &scheme[SchemeNorm]);
+	drw_setscheme(drw, scheme[SchemeNorm]);
 	drw_text(drw, 0, 0, mons->ww, bh, lrpad / 2, eb.text, 0);
 	drw_map(drw, eb.win, 0, 0, mons->ww, bh);
 }
@@ -1182,21 +1182,6 @@ maprequest(XEvent *e)
 		return;
 	if (!wintoclient(ev->window))
 		manage(ev->window, &wa);
-}
-
-void
-monocle(Monitor *m)
-{
-	unsigned int n = 0;
-	Client *c;
-
-	for (c = m->clients; c; c = c->next)
-		if (ISVISIBLE(c))
-			n++;
-	if (n > 0) /* override layout symbol */
-		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d]", n);
-	for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
-		resize(c, m->wx, m->wy, m->ww - 2 * c->bw, m->wh - 2 * c->bw, 0);
 }
 
 void
@@ -2130,7 +2115,7 @@ updategeom(void)
 				else
 					mons = createmon();
 			}
-			for (i = 0, m = mons; i < nn && m; m = m->next, i++)
+			for (i = 0, m = mons; i < nn && m; m = m->next, i++){
 				if (i >= n
 				|| unique[i].x_org != m->mx || unique[i].y_org != m->my
 				|| unique[i].width != m->mw || unique[i].height != m->mh)
@@ -2143,6 +2128,10 @@ updategeom(void)
 					m->mh = m->wh = unique[i].height;
 					updatebarpos(m);
 				}
+				if(i == statmonval)
+					statmon = m;
+			}
+
 		} else { /* less monitors available nn < n */
 			for (i = nn; i < n; i++) {
 				for (m = mons; m && m->next; m = m->next);
@@ -2156,6 +2145,8 @@ updategeom(void)
 				}
 				if (m == selmon)
 					selmon = mons;
+				if (m == statmon)
+					statmon = mons;
 				cleanupmon(m);
 			}
 		}
@@ -2256,7 +2247,8 @@ updatestatus(void)
 			eb.text[0] = '\0';
 		strncpy(stext, text, sizeof(stext)-1);
 	}
-	drawbar(selmon);
+	//drawbar(selmon);
+	drawbar(statmon);
 }
 
 void
