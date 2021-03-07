@@ -2,3 +2,6 @@ Add gaps support for:
   - Bottom Status Bar
   - Fib Layouts
   - Three Col Layout
+
+Tag Bar:
+  - Active indicator doesn't draw outline when tag isn't selected. Always draws a filled rect.

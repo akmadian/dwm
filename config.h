@@ -14,6 +14,7 @@ static const int extrabar           = 1;        /* 0 means no extra bar */
 static const int vertpad            = 10;       /* vertical padding of bar */
 static const int sidepad            = 10;       /* horizontal padding of bar */
 static const int statmonval         = 0;        /* which monitor to keep the status bar on */
+static const int swallowfloating    = 0;        /* 1 means swallow floating windows by default */
 
 static const char *fonts[]          = { "MonoLisa:size=10" };
 static const char dmenufont[]       = "MonoLisa:size=10";
@@ -79,8 +80,9 @@ static const char *const autostart[] = {
 #define SHCMD(cmd) { .v = (const char*[]){ "/bin/sh", "-c", cmd, NULL } }
 
 /* commands */
+static char dmenuhp[] = "brave,st";
 static char dmenumon[2] = "0"; /* component of dmenucmd, manipulated in spawn() */
-static const char *dmenucmd[] = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont, "-nb", col_gray1, "-nf", col_gray3, "-sb", col_cyan, "-sf", col_gray4, NULL };
+static const char *dmenucmd[] = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont, "-nb", col_gray1, "-nf", col_gray3, "-sb", pale_night_purple, "-sf", col_gray4, "-hp", dmenuhp, NULL };
 static const char *termcmd[]  = { "st", NULL };
 static const char *brave[] = { "brave", NULL };
 static const char *swao[] = { "swao", NULL };
