@@ -1,13 +1,9 @@
-#include <stdlib.h>
-#include <string.h>
-
 void
-tcl(Monitor * m)
+tclorig(Monitor * m)
 {
 	int x, y, h, w, mw, sw, bdw;
 	unsigned int i, n;
 	Client * c;
-	system(strcat(strcat(strcat("herbe 'running tcl' ", "'"), c->name), "' &"));
 
 	for (n = 0, c = nexttiled(m->clients); c;
 	        c = nexttiled(c->next), n++);
