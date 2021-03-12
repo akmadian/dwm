@@ -5,23 +5,21 @@
 Client *
 nexttiledcust(Client *c) {
   for (; c && (c->isfloating || !ISVISIBLE(c)); c = c->next);
-	  return c;
+  return c;
 }
 
 void
 custom(Monitor *m) {
-  unsigned int i, n, h, mw, my, ty;
+  unsigned int i, n, h, my, ty;
   Client *c;
-  fprintf(stderr, "CUSTOM LAYOUT START\n");
-  for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
-  fprintf(stderr, "\tMONITOR %i INFO - mx: %i my: %i mw: %i mh: %i - n: %i - nmaster: %i\n", m->num, m->mx, m->my, m->mw, m->mh, n, m->nmaster);
-  fprintf(stderr, "\t                - wx: %i wy: %i ww: %i wh: %i - n: %i - nmaster: %i\n", m->wx, m->wy, m->ww, m->wh, n, m->nmaster);
 
-  fprintf(stderr, "\tMONITOR %i INFO - mx: %i my: %i mw: %i mh: %i - n: %i - nmaster: %i\n", m->next->num, m->next->mx, m->next->my, m->next->mw, m->mh, n, m->nmaster);
-  int monitor_quarter_size = (m->mw / 4);
-  fprintf(stderr, "\tMONITOR %i quarter size: %i\n", m->num, monitor_quarter_size);
-  int master_window_offset = m->mx + monitor_quarter_size;
-  int rightcol_x_offset;
+  //fprintf(stderr, "CUSTOM LAYOUT START\n");
+  for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+  //fprintf(stderr, "\tMONITOR %i INFO - mx: %i my: %i mw: %i mh: %i - n: %i - nmaster: %i\n", m->num, m->mx, m->my, m->mw, m->mh, n, m->nmaster);
+  //fprintf(stderr, "\t                - wx: %i wy: %i ww: %i wh: %i - n: %i - nmaster: %i\n", m->wx, m->wy, m->ww, m->wh, n, m->nmaster);
+
+  //fprintf(stderr, "\tMONITOR %i INFO - mx: %i my: %i mw: %i mh: %i - n: %i - nmaster: %i\n", m->next->num, m->next->mx, m->next->my, m->next->mw, m->mh, n, m->nmaster);
+  //fprintf(stderr, "\tMONITOR %i quarter size: %i\n", m->num, monitor_quarter_size);
 
   int master_width = m->ww * mfact;
   int sides_width = m->ww * (mfact/2);
@@ -48,7 +46,7 @@ custom(Monitor *m) {
 
   // resize(Client *c, int x, int y, int w, int h, int interact)
   for (i = my = ty = 0, c = nexttiledcust(m->clients); c; c = nexttiledcust(c->next), i++) {
-    fprintf(stderr, "\tCLIENT INFO - %s i: %i n: %i ismaster: %i\n", c->name, i, n, i == m->nmaster);
+    //fprintf(stderr, "\tCLIENT INFO - %s i: %i n: %i ismaster: %i\n", c->name, i, n, i == m->nmaster);
     if (i == m->nmaster) {
       resize(c,
           n == 2 ? m->wx + gappoh : m->wx + sides_width + gappoh,
